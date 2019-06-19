@@ -1,3 +1,5 @@
+![Rio MicroPaaS Logo](/images/140x140-0.png) 
+
 # RIO - Kubernetes based MicroPaaS 
 
 An easy way to run demo of Rio in Jelastic PaaS
