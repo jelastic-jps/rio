@@ -1,0 +1,85 @@
+version: 1.1
+type: install
+id: rio
+baseUrl: https://raw.githubusercontent.com/jelastic-jps/rio/master
+name: Rio MicroPaaS
+description: 
+  text: Rio is a Kubernetes-based MicroPaaS, and with only a few keystrokes you can deploy, manage, scale, and version stateless applications in any Kubernetes cluster.
+  short: Rio is a Kubernetes-based MicroPaaS
+logo: /images/70x70-2.png
+homepage: https://rio.io/
+settings:
+  fields:
+    - caption: Env Name  
+      type: envname
+      name: envName
+      dependsOn: region
+      randomName: true
+      showFullDomain: true
+      required: true
+
+    - caption: Region
+      type: regionlist
+      name: region
+      disableInactive: true
+      selectFirstAvailable: true
+      filter:
+        type: ["vz7"]
+        isActive: true
+  
+onInstall:
+  - script: return {result:0, envGroups:eval('(' + MANIFEST + ')').envGroups}
+  - install: 
+      jps: https://raw.githubusercontent.com/jelastic-jps/kubernetes/master/manifest.jps?_r=${fn.random}
+      envName: ${settings.envName}
+      envGroups: ${response.envGroups}
+      region: ${settings.region}
+      displayName: Rio in K8s
+  - env.control.GetEnvInfo:
+      envName: ${settings.envName}
+
+  - forEach(response.nodes):
+      - if ('${@i.nodeGroup}' == 'k8sm'):
+          setGlobals:
+            k8smId: ${@i.id} 
+
+  - forEach(response.nodes):
+      - if ('${@i.nodeGroup}' == 'cp'): 
+        - env.binder.AttachExtIp:
+            envName: ${settings.envName}
+            nodeid: ${@i.id}
+
+        - env.control.ExecCmdById:
+            envName: ${settings.envName}
+            nodeId: ${globals.k8smId} 
+            commandList: 
+              - 
+                command: |-
+                  curl -sfL https://get.rio.io | sh - &>> /var/log/run.log 
+                  rio install --host-ports --ip-address ${response.object} &>> /var/log/run.log 
+                  name=$(rio run https://github.com/rancher/rio-demo)
+                  echo "Name = $name" >> /var/log/run.log
+                  n=0
+                  while true; do
+                    sleep 5
+                    service=$(rio ps | grep $(cut -d':' -f1 <<< $name))
+                    echo "Service = $service" >> /var/log/run.log
+                    echo $service | grep NotReady &>> /var/log/run.log && status=not || status=ready
+                    [ "$status" == "ready" ] && {
+                        url=${service#*ago}
+                        url=${url% v*}
+                        echo "Ready -> $url" &>> /var/log/run.log 
+                        echo $url;
+                        break;
+                    }
+                    ((n++))
+                    ((n > 60)) && {
+                        error="Service is not ready during 300 sec after deployment";
+                        echo $error &>> /var/log/run.log 
+                        echo $error
+                        exit 1;
+                    }
+                  done
+
+        - script: |
+            return {'result': 'success','message': '**Service URL:** [${response.out}](${response.out})'}
